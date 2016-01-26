@@ -30,16 +30,23 @@ CROMEDRIVER_LATEST_VERSION_PATTERN = re.compile(
     r'Latest-Release:-ChromeDriver-(\d+\.\d+)'
 )
 
+SOCKET_PATTERN = re.compile(r'[0-9]+(?:\.[0-9]+){3}:[0-9]+')
+
 # Global variables
 chromedriver_version = None
 chromedriver_checksums = None
+http_proxy = None
 
 
 def get_chromedriver_version():
     """Retrieves the most recent chromedriver version."""
-    global chromedriver_version
+    global chromedriver_version, http_proxy
 
-    response = request.urlopen(CHROMEDRIVER_INFO_URL)
+
+    if http_proxy:
+        response = urllib.urlopen(CHROMEDRIVER_INFO_URL, proxies=http_proxy)
+    else:
+        response = request.urlopen(CHROMEDRIVER_INFO_URL)
     content = response.read()
     match = CROMEDRIVER_LATEST_VERSION_PATTERN.search(str(content))
     if match:
@@ -84,7 +91,12 @@ class BuildScripts(build_scripts):
                 sys.stdout.write(' OK')
             sys.stdout.flush()
 
-        request.urlretrieve(url, zip_path, reporthoook)
+        if http_proxy:
+            opener = urllib.URLopener(proxies=http_proxy)
+        else:
+            opener = urllib.URLopener()
+
+        opener.retrieve(url, zip_path, reporthoook)
 
         print('')
         if not download_ok:
@@ -107,7 +119,7 @@ class BuildScripts(build_scripts):
         return checksum in chromedriver_checksums
 
     def run(self):
-        global chromedriver_version, chromedriver_checksums
+        global chromedriver_version, chromedriver_checksums, http_proxy
 
         validate = False
 
@@ -162,15 +174,17 @@ class Install(install):
     user_options = install.user_options + [
         ('chromedriver-version=', None, 'Chromedriver version'),
         ('chromedriver-checksums=', None, 'Chromedriver checksums'),
+        ('proxy-settings=', None, 'HTTP proxy for downloading ChromeDriver'),
     ]
 
     def initialize_options(self):
         self.chromedriver_version = None
         self.chromedriver_checksums = []
+        self.proxy_settings = None
         install.initialize_options(self)
 
     def run(self):
-        global chromedriver_version, chromedriver_checksums
+        global chromedriver_version, chromedriver_checksums, http_proxy
 
         if self.chromedriver_version:
             if not CHROMEDRIVER_VERSION_PATTERN.match(self.chromedriver_version):
@@ -185,8 +199,16 @@ class Install(install):
             chromedriver_checksums = [ch.strip() for ch in
                                       self.chromedriver_checksums.split(',')]
 
-        install.run(self)
+        if self.proxy_settings != None:
+            if not SOCKET_PATTERN.match(self.proxy_settings):
+                raise Exception('Invalid --proxy_settings={0}! '
+                                'Must match /{1}/'
+                                .format(self.proxy_settings,
+                                         SOCKET_PATTERN.pattern))
+            else:
+                http_proxy = {'http': 'http://'+self.proxy_settings}
 
+        install.run(self)
 
 setup(
     name='chromedriver_installer',
